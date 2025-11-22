@@ -16,7 +16,7 @@ from dataset.CramedDataset import CramedDataset
 from dataset.KSDataset import KSDataset
 from dataset.VGGSoundDataset import VGGSound
 from dataset.AVEDataset import AVEDataset
-from models.basic_model import AVClassifier, AVClassifier_SWIN
+from models.basic_model import AVClassifier
 from utils.utils import setup_seed, weight_init
 from dataset.Kinect400 import Kinect400
 import csv
@@ -37,8 +37,8 @@ def get_arguments():
     parser.add_argument('--use_video_frames', default=3, type=int)
     parser.add_argument('--num_frame', default=1, type=int, help='use how many frames for train')
 
-    parser.add_argument('--audio_path', default='./data/CREMA-D/AudioWAV', type=str)
-    parser.add_argument('--visual_path', default='./data/CREMA-D', type=str)
+    parser.add_argument('--audio_path', default='./train_test_data/CREMA-D/AudioWAV', type=str)
+    parser.add_argument('--visual_path', default='./train_test_data/CREMA-D', type=str)
 
     parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--epochs', default=100, type=int)
@@ -161,7 +161,7 @@ def train_epoch(args, epoch, model, device, dataloader, optimizer, scheduler, sc
         optimizer.zero_grad()
 
         # TODO: make it simpler and easier to extend
-        a, v, out, a_feature, v_feature, a_mul, a_std, v_mul, v_std, out_a, out_v = model(spec.unsqueeze(1).float(),
+        a, v, out = model(spec.unsqueeze(1).float(),
                                                                                           image.float())
 
         # print(a_feature.shape,v_feature.shape)
@@ -180,61 +180,8 @@ def train_epoch(args, epoch, model, device, dataloader, optimizer, scheduler, sc
         loss_a=loss_f
         loss_v=loss_f
 
-        a_diveristy = get_feature_diversity(a_feature)
-        v_diveristy = get_feature_diversity(v_feature)
+        loss = loss_cls 
 
-        # if epoch<2:
-        #     a_std = torch.clamp(a_std, min=0, max=2)
-        #     v_std = torch.clamp(v_std, min=0, max=2)
-
-        # print(a_mul)
-        if not isinstance(a_mul, int):
-            regurize_a = regurize(a_mul, a_std)
-            regurize_a = regurize_a.cuda()
-        else:
-            regurize_a = torch.zeros(1).float().cuda()
-
-        if not isinstance(v_mul, int):
-            regurize_v = regurize(v_mul, v_std)
-            regurize_v = regurize_v.cuda()
-            # print(regurize_a)
-        else:
-            regurize_v = torch.zeros(1).float().cuda()
-
-        # if epoch < 2:
-        #     regurize_loss = torch.zeros(1).float().cuda()
-        # else:
-        #     regurize_loss = (regurize_a + regurize_v) * args.beta
-
-        regurize_loss = (regurize_a + regurize_v)
-        # if regurize_loss>10:
-        #     regurize_loss=regurize_loss/(regurize_loss/10.0)
-
-        loss = loss_cls + regurize_loss * args.beta
-        # print(loss)
-        if step % 100 == 0:
-            # print(a_std.mean().item(),v_std.mean().item())
-            print("regurize_Loss:", regurize_loss.item(), "unimodal_loss:", (loss_a + loss_v).item(), "cls_loss:",
-                  loss_cls.item())
-
-        # calculate_a = torch.mean(out_a, 0).sum().cpu().detach().numpy()
-        # calculate_b = torch.mean(out_v, 0).sum().cpu().detach().numpy()
-        # print("calculate:", calculate_a, calculate_b)
-        #
-        # fc_weight = model.module.fusion_module.fc_out.weight
-        # fc_weight = fc_weight.T
-        #
-        # fc_weight_mean = fc_weight[:, 3]
-        #
-        # visual = torch.mean(torch.abs(fc_weight_mean[0:512]))
-        # audio = torch.mean(torch.abs(fc_weight_mean[512:1024]))
-        #
-        # print("weight:", torch.sum(audio).cpu().detach().numpy(), torch.sum(visual).cpu().detach().numpy())
-
-        # with open("weight_of_a_v.csv", 'a', newline='') as f:
-        #     writer = csv.writer(f)
-        #     row = [calculate_a, calculate_b]
-        #     writer.writerow(row)
 
         loss.backward()
 
@@ -336,11 +283,6 @@ def train_epoch(args, epoch, model, device, dataloader, optimizer, scheduler, sc
         _loss += loss.item()
         _loss_a += loss_a.item()
         _loss_v += loss_v.item()
-        _a_diveristy += a_diveristy.item()
-        _v_diveristy += v_diveristy.item()
-        _a_re += regurize_a.item()
-        _v_re += regurize_v.item()
-
         # if step % 100 == 0:
         #     print(step, loss)
 
@@ -454,7 +396,7 @@ def valid(args, model, device, dataloader):
             image = image.to(device)
             label = label.to(device)
 
-            a, v, out, a_feature, v_feature, _, _, _, _,out_a, out_v = model(spec.unsqueeze(1).float(), image.float())
+            a, v, out= model(spec.unsqueeze(1).float(), image.float())
             
             out_v=out
             out_a=out
