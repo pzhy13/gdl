@@ -123,3 +123,104 @@ class AVClassifier_DGL(nn.Module):
         else:
             return 0, 0, 0
 
+
+
+class AVClassifier(nn.Module):
+    def __init__(self, args):
+        super(AVClassifier, self).__init__()
+
+        fusion = args.fusion_method
+        if args.dataset == 'VGGSound':
+            n_classes = 309
+        elif args.dataset == 'KineticSound':
+            n_classes = 34
+        elif args.dataset == 'CREMAD':
+            n_classes = 6
+        elif args.dataset == 'AVE':
+            n_classes = 28
+        else:
+            raise NotImplementedError('Incorrect dataset name {}'.format(args.dataset))
+
+        if fusion == 'sum':
+            self.fusion_module = SumFusion(output_dim=n_classes)
+        elif fusion == 'concat':
+            self.fusion_module = ConcatFusion(output_dim=n_classes)
+        elif fusion == 'film':
+            self.fusion_module = FiLM(output_dim=n_classes, x_film=True)
+        elif fusion == 'gated':
+            self.fusion_module = GatedFusion(output_dim=n_classes, x_gate=True)
+        else:
+            raise NotImplementedError('Incorrect fusion method: {}!'.format(fusion))
+
+        if args.modality == 'full':
+            self.audio_net = resnet18(modality='audio',args=args)
+            self.visual_net = resnet18(modality='visual',args=args)
+
+        if args.modality == 'visual':
+            self.visual_net = resnet18(modality='visual',args=args)
+            self.visual_classifier = nn.Linear(512, n_classes)
+        if args.modality == 'audio':
+            self.audio_net = resnet18(modality='audio',args=args)
+            self.audio_classifier = nn.Linear(512, n_classes)
+
+        self.args = args
+
+    def forward(self, audio, visual):
+
+        if self.args.modality == 'full':
+            a = self.audio_net(audio)  # only feature
+            v = self.visual_net(visual)
+
+
+            (_, C, H, W) = v.size()
+            B = a.size()[0]
+            # print(B)
+            # print(B*C*H*W)
+            v = v.view(B, -1, C, H, W)
+            v = v.permute(0, 2, 1, 3, 4)
+
+            a = F.adaptive_avg_pool2d(a, 1)
+            v = F.adaptive_avg_pool3d(v, 1)
+
+            a = torch.flatten(a, 1)
+            v = torch.flatten(v, 1)
+
+            a, v, out = self.fusion_module(a, v)  # av 是原来的，out是融合结果
+
+            return a, v, out
+
+        elif self.args.modality == 'visual':
+            v = self.visual_net(visual)
+
+            (_, C, H, W) = v.size()
+            B = self.args.batch_size
+            v = v.view(B, -1, C, H, W)
+            # print(B)
+            # print(B * C * H * W)
+            v = v.permute(0, 2, 1, 3, 4)
+
+            v = F.adaptive_avg_pool3d(v, 1)
+
+            v = torch.flatten(v, 1)
+
+            out = self.visual_classifier(v)
+
+            a = torch.zeros_like(v)
+
+            return a, v, out
+
+        elif self.args.modality == 'audio':
+            a = self.audio_net(audio)  # only feature
+
+            a = F.adaptive_avg_pool2d(a, 1)
+
+            a = torch.flatten(a, 1)
+
+            out = self.audio_classifier(a)
+            v = torch.zeros_like(a)
+
+            return a, v, out
+        else:
+            return 0, 0 ,0
+
+
