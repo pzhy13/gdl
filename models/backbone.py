@@ -260,3 +260,48 @@ def resnet18(modality, args, progress=True, **kwargs):
 def resnet50(modality, args, progress=True, **kwargs):
     return _resnet('resnet50', args, BasicBlock, [3, 4, 6, 3], modality, progress,
                    **kwargs)
+
+# 在 models/backbone.py 文件末尾添加这个类
+
+class SimpleEEGNet(nn.Module):
+    def __init__(self, args, output_dim=512):
+        super(SimpleEEGNet, self).__init__()
+        # 输入: (Batch, 1, 32, 384)
+        
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=(1, 64), stride=(1, 2), padding=(0, 32), bias=False),
+            nn.BatchNorm2d(16),
+            nn.ELU(),
+            nn.Dropout(0.5) # 强力 Dropout
+        )
+        
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=(32, 1), groups=16, bias=False), # Depthwise conv 模拟空间滤波
+            nn.BatchNorm2d(32),
+            nn.ELU(),
+            nn.AvgPool2d((1, 4)),
+            nn.Dropout(0.5)
+        )
+        
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=(1, 16), padding=(0, 8), bias=False),
+            nn.BatchNorm2d(64),
+            nn.ELU(),
+            nn.AvgPool2d((1, 4)),
+            nn.Dropout(0.5)
+        )
+
+        # 展平后的维度需要计算，这里简化处理，通过全连接层映射到 512
+        self.flatten = nn.Flatten()
+        
+        # 假设经过上面层后，特征图大小约为 (Batch, 64, 1, 12) -> 768
+        # 如果报错维度不匹配，请根据报错调整这里的输入维度
+        self.fc = nn.Linear(768, output_dim) 
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.flatten(x)
+        x = self.fc(x)
+        return x

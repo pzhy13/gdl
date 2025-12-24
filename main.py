@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import pdb
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
+from dataset.DEAPDataset import DEAPDataset
 from dataset.CramedDataset import CramedDataset
 from dataset.KSDataset import KSDataset
 from dataset.VGGSoundDataset import VGGSound
@@ -27,7 +27,7 @@ from tqdm import tqdm
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default='CREMAD', type=str,
-                        help='VGGSound, KineticSound, CREMAD, AVE')
+                        help='VGGSound, KineticSound, CREMAD, AVE, DEAP')
     parser.add_argument('--modulation', default='OGM_GE', type=str,
 
                         choices=['Normal', 'OGM', 'OGM_GE'])
@@ -375,6 +375,8 @@ def valid(args, model, device, dataloader):
         n_classes = 400
     elif args.dataset == 'CREMAD':
         n_classes = 6
+    elif args.dataset == 'DEAP': # 添加这行
+        n_classes = 4
     elif args.dataset == 'AVE':
         n_classes = 28
     else:
@@ -484,6 +486,10 @@ def main():
     elif args.dataset == 'AVE':
         train_dataset = AVEDataset(args, mode='train')
         test_dataset = AVEDataset(args, mode='test')
+    elif args.dataset == 'DEAP':
+        train_dataset = DEAPDataset(args, mode='train')
+        val_dataset = DEAPDataset(args, mode='val')
+        test_dataset = DEAPDataset(args, mode='test')
     else:
         raise NotImplementedError('Incorrect dataset name {}! '
                                   'Only support VGGSound, KineticSound and CREMA-D for now!'.format(args.dataset))
@@ -494,6 +500,17 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size,
                                  shuffle=False, num_workers=32, pin_memory=True, drop_last=True)
 
+    if args.dataset == 'DEAP':
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size,
+                                  shuffle=True, num_workers=8, pin_memory=True, drop_last=True)
+    
+        # 关键：用 val_dataset 做训练过程中的评估
+        test_dataloader = DataLoader(val_dataset, batch_size=args.batch_size,
+                                    shuffle=False, num_workers=8, pin_memory=True)
+                                    
+        # 真正的测试集加载器 (可在训练结束后使用)
+        real_test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size,
+                                        shuffle=False, num_workers=8, pin_memory=True)
 
     log_path = os.path.join(args.ckpt_path, args.dataset)
 
@@ -507,7 +524,7 @@ def main():
     if args.train:
 
         best_acc = 0.0
-
+        best_model_path = ""
         for epoch in range(args.epochs):
 
             print('Epoch: {}: '.format(epoch))
@@ -592,7 +609,7 @@ def main():
 
                 save_dir = os.path.join(args.ckpt_path, model_name)
 
-                # torch.save(saved_dict, save_dir)
+                torch.save(saved_dict, save_dir)
                 print('The best model has been saved at {}.'.format(save_dir))
                 print("Loss: {:.3f}, Acc: {:.3f}".format(batch_loss, acc))
                 print("Audio Acc: {:.3f}， Visual Acc: {:.3f} ".format(acc_a, acc_v))
@@ -603,7 +620,32 @@ def main():
                 print("Audio Acc: {:.3f}， Visual Acc: {:.3f} ".format(acc_a, acc_v))
                 print("Audio similar: {:.3f}， Visual similar: {:.3f} ".format(a_diveristy, v_diveristy))
                 print("Audio regurize: {:.3f}， Visual regurize: {:.3f} ".format(a_re, v_re))
-
+        if best_model_path!="" and os.path.exists(best_model_path):
+            print(f"训练结束。正在加载最佳模型进行最终测试: {best_model_path}")
+            
+            # 加载权重
+            checkpoint = torch.load(best_model_path)
+            model.load_state_dict(checkpoint['model'])
+            
+            # 切换到评估模式
+            model.eval()
+            
+            # 使用 real_test_dataloader (我们在上一步定义的独立测试集)
+            final_acc, final_acc_a, final_acc_v = valid(args, model, device, real_test_dataloader)
+            
+            print("="*50)
+            print(f"【最终测试结果 (Final Test)】")
+            print(f"Total Accuracy : {final_acc:.4f}")
+            print(f"EEG Accuracy   : {final_acc_a:.4f}")
+            print(f"Face Accuracy  : {final_acc_v:.4f}")
+            print("="*50)
+            
+            # (可选) 写入日志
+            with open(save_path, 'a+', newline='') as csvfile:
+                writer = csv.writer(csvfile, delimiter=",")
+                writer.writerow(['Final Test', final_acc, final_acc_a, final_acc_v])
+        else:
+            print("未找到最佳模型文件，跳过最终测试。")
     else:
         # first load trained model
         loaded_dict = torch.load(args.ckpt_path)
