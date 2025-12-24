@@ -1,0 +1,6 @@
+EEGData
+faces
+train1223.log
+checkpoints_deap/
+models/__pycache__/
+dataset/__pycache__/
