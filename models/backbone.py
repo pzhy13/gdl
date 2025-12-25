@@ -305,3 +305,67 @@ class SimpleEEGNet(nn.Module):
         x = self.flatten(x)
         x = self.fc(x)
         return x
+
+# models/backbone.py 末尾添加
+
+class EEGNet(nn.Module):
+    """
+    标准的 EEGNet 实现 (Lawhern et al., 2018)
+    输入: (Batch, 1, Channels, Time) -> 这里的 Channels=32, Time=384
+    """
+    def __init__(self, args, output_dim=512):
+        super(EEGNet, self).__init__()
+        
+        # 根据你的数据配置
+        nb_classes = output_dim # 这里我们不直接分类，而是映射到特征维度 (512)
+        Chans = 32
+        Samples = 384
+        dropoutRate = 0.5
+        kernLength = 64
+        F1 = 8
+        D = 2
+        F2 = F1 * D
+
+        self.block1 = nn.Sequential(
+            # Padding=(0, 32) 为了保持时间维度，假设 kernel=64
+            nn.Conv2d(1, F1, (1, kernLength), padding=(0, kernLength // 2), bias=False),
+            nn.BatchNorm2d(F1, momentum=0.01, affine=True, eps=1e-3),
+            
+            # Depthwise Conv2D
+            nn.Conv2d(F1, F1 * D, (Chans, 1), groups=F1, bias=False),
+            nn.BatchNorm2d(F1 * D, momentum=0.01, affine=True, eps=1e-3),
+            nn.ELU(),
+            nn.AvgPool2d((1, 4)),
+            nn.Dropout(dropoutRate)
+        )
+
+        self.block2 = nn.Sequential(
+            # Separable Conv2D
+            nn.Conv2d(F1 * D, F1 * D, (1, 16), padding=(0, 8), groups=F1 * D, bias=False),
+            nn.Conv2d(F1 * D, F2, (1, 1), bias=False),
+            nn.BatchNorm2d(F2, momentum=0.01, affine=True, eps=1e-3),
+            nn.ELU(),
+            nn.AvgPool2d((1, 8)),
+            nn.Dropout(dropoutRate)
+        )
+
+        self.flatten = nn.Flatten()
+        
+        # 计算全连接层输入维度
+        # EEGNet 降采样非常厉害: 384 -> /4 -> 96 -> /8 -> 12
+        # 输出特征图大小: (Batch, F2, 1, 12) -> F2=16
+        # 所以 flatten 后大小 = 16 * 12 = 192
+        # 建议让网络自动计算，或者手动算一下
+        self.fc_input_dim = F2 * (Samples // 32) # 16 * 12 = 192
+        
+        self.fc = nn.Linear(self.fc_input_dim, output_dim)
+
+    def forward(self, x):
+        # EEGNet 期望输入 (Batch, 1, Channels, Time)
+        # 你的数据是 (Batch, 1, 32, 384)，正好对应
+        
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.flatten(x)
+        x = self.fc(x)
+        return x

@@ -139,9 +139,10 @@ def train_epoch(args, epoch, model, device, dataloader, optimizer, scheduler,
 
         visual_grad_sum = 0
         index=0
-        for p in model.module.visual_net.parameters():
-            index+=1
-            visual_grad_sum += torch.abs(p.grad).mean().item()
+        if hasattr(model.module, "visual_net"):
+            for p in model.module.visual_net.parameters():
+                index+=1
+                visual_grad_sum += torch.abs(p.grad).mean().item()
         if step % 100 == 0:
             print("grad:",audio_grad_sum, visual_grad_sum)
             print("unimodal",torch.abs(out_a).mean().item(),torch.abs(out_v).mean().item())
@@ -247,6 +248,15 @@ def main():
     model = torch.nn.DataParallel(model, device_ids=gpu_ids)
 
     model.cuda()
+# 定义差分参数组
+    params = [
+        # 1. 脑电网络：全速前进 (1.0 * lr)
+        {'params': model.module.audio_net.parameters(), 'lr': args.learning_rate},
+        
+        # 2. 视觉网络：降速 10 倍甚至 100 倍 (0.1 * lr)
+        #{'params': model.module.visual_net.parameters(), 'lr': args.learning_rate * 0.01},
+        
+    ]
 
     if args.optimizer == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=args.learning_rate, momentum=0.9, weight_decay=1e-4)
@@ -256,8 +266,12 @@ def main():
         optimizer = optim.Adagrad(model.parameters(), lr=args.learning_rate)
         scheduler = None
     elif args.optimizer == 'Adam':
-        optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, betas=(0.9, 0.999))
-        scheduler = None
+        
+
+        
+        #optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, betas=(0.9, 0.999))
+        optimizer = optim.AdamW(params, lr=args.learning_rate, betas=(0.9, 0.999), weight_decay=1e-4)
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
     else:
         raise ValueError
 
@@ -404,7 +418,7 @@ def main():
                                   'scheduler': scheduler.state_dict()}
 
                 save_dir = os.path.join(args.ckpt_path, model_name)
-
+                best_model_path = save_dir
                 torch.save(saved_dict, save_dir)
                 print('The best model has been saved at {}.'.format(save_dir))
                 print("Loss: {:.3f}, Acc: {:.3f}".format(batch_loss, acc))

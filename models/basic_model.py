@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-# 【修改点1】导入 SimpleEEGNet
-from .backbone import resnet18, SimpleEEGNet
+# 【修改点1】导入 EEGNet
+from .backbone import resnet18, EEGNet
 from .fusion_modules import SumFusion, ConcatFusion, FiLM, GatedFusion, ConcatFusion_Swin, ConcatFusion_DGL, GatedFusion_DGL, SumFusion_DGL, FiLM_DGL, ConcatFusion_DGL_unimodal
 import numpy as np
 from models.swin_transformer import SwinTransformer
@@ -43,8 +43,8 @@ class AVClassifier_DGL(nn.Module):
             raise NotImplementedError('Incorrect fusion method: {}!'.format(fusion))
 
         if args.modality == 'full':
-            # 【修改点2】音频分支改用 SimpleEEGNet
-            self.audio_net = SimpleEEGNet(args)
+            # 【修改点2】音频分支改用 EEGNet
+            self.audio_net = EEGNet(args)
             self.visual_net = resnet18(modality='visual', args=args)
 
         if args.modality == 'visual':
@@ -56,8 +56,8 @@ class AVClassifier_DGL(nn.Module):
                 self.visual_classifier = nn.Linear(512, n_classes)
         
         if args.modality == 'audio':
-            # 【修改点3】单音频也改用 SimpleEEGNet
-            self.audio_net = SimpleEEGNet(args)
+            # 【修改点3】单音频也改用 EEGNet
+            self.audio_net = EEGNet(args)
             self.audio_classifier = nn.Linear(512, n_classes)
             
         self.modality = args.modality
@@ -69,7 +69,7 @@ class AVClassifier_DGL(nn.Module):
     def forward(self, audio, visual):
         
         if self.modality == 'full':
-            # SimpleEEGNet 直接输出 (B, 512)
+            #EEGNet直接输出 (B, 512)
             a = self.audio_net(audio)  
             
             # ResNet18 输出特征图，需要处理
@@ -150,8 +150,8 @@ class AVClassifier(nn.Module):
             raise NotImplementedError('Incorrect fusion method: {}!'.format(fusion))
 
         if args.modality == 'full':
-            # 【修改点6】音频分支改用 SimpleEEGNet
-            self.audio_net = SimpleEEGNet(args)
+            # 【修改点6】音频分支改用 EEGNet
+            self.audio_net = EEGNet(args)
             self.visual_net = resnet18(modality='visual', args=args)
 
         if args.modality == 'visual':
@@ -159,8 +159,8 @@ class AVClassifier(nn.Module):
             self.visual_classifier = nn.Linear(512, n_classes)
             
         if args.modality == 'audio':
-            # 【修改点7】单音频也改用 SimpleEEGNet
-            self.audio_net = SimpleEEGNet(args)
+            # 【修改点7】单音频也改用 EEGNet
+            self.audio_net = EEGNet(args)
             self.audio_classifier = nn.Linear(512, n_classes)
 
         self.args = args
@@ -170,7 +170,7 @@ class AVClassifier(nn.Module):
     def forward(self, audio, visual):
 
         if self.args.modality == 'full':
-            # SimpleEEGNet 直接输出向量
+            # EEGNet 直接输出向量
             a = self.audio_net(audio)  
             
             # ResNet18 输出特征图
